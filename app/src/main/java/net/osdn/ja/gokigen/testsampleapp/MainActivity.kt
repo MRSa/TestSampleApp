@@ -16,6 +16,7 @@ import androidx.core.content.ContextCompat
 class MainActivity : AppCompatActivity()
 {
     private lateinit var myListener: MyActionListener
+    private lateinit var myDataProvider: MyDataProvider
     override fun onCreate(savedInstanceState: Bundle?)
     {
         Log.v(TAG, " ----- onCreate() -----")
@@ -34,7 +35,8 @@ class MainActivity : AppCompatActivity()
         try
         {
             // ボタンと表示エリアを設定する
-            myListener = MyActionListener(this, findViewById(R.id.text_information), findViewById(R.id.text_status))
+            myDataProvider = MyDataProvider(findViewById(R.id.ip_address), findViewById(R.id.ftp_username), findViewById(R.id.ftp_password))
+            myListener = MyActionListener(this, myDataProvider, findViewById(R.id.text_information), findViewById(R.id.text_status))
             findViewById<Button>(R.id.btnConnect).visibility = View.INVISIBLE
             findViewById<Button>(R.id.btnWifiSet).visibility = View.INVISIBLE
 

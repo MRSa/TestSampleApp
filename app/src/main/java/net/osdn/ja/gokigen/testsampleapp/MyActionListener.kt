@@ -1,14 +1,14 @@
 package net.osdn.ja.gokigen.testsampleapp
 
-import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import android.util.Log
 import android.view.View
 import android.view.View.OnLongClickListener
 import android.widget.TextView
+import androidx.appcompat.app.AppCompatActivity
 
-class MyActionListener(private val context: Context, private val informationArea: TextView, private val statusArea: TextView) : View.OnClickListener, OnLongClickListener
+class MyActionListener(private val activity: AppCompatActivity, private val dataProvider: MyDataProvider, private val informationArea: TextView, private val statusArea: TextView) : View.OnClickListener, OnLongClickListener
 {
     override fun onClick(p0: View?)
     {
@@ -32,7 +32,12 @@ class MyActionListener(private val context: Context, private val informationArea
     {
         try
         {
-            informationArea.text = context.getString(R.string.lbl_connect)
+            val address = dataProvider.getAddress()
+            val user = dataProvider.getUser()
+            val pass = dataProvider.getPass()
+            val message = "${activity.getString(R.string.lbl_connect)} $address  $user"
+
+            informationArea.text = message
             statusArea.text = ""
 
         }
@@ -47,7 +52,7 @@ class MyActionListener(private val context: Context, private val informationArea
         Log.v(TAG, "pushedWifiSet()")
         try
         {
-            context.startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
+            activity.startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
         }
         catch (e: Exception)
         {
