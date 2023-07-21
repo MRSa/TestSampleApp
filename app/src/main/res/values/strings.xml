@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">TestSampleApp</string>
+    <string name="text_message_blank"> </string>
+    <string name="description_control_button">Button</string>
+    <string name="input_parameter_hint"> input </string>
+    <string name="permission_not_granted">Permissions are not granted by the user.</string>
+
+    <string name="lbl_connect">Connect</string>
+</resources>
