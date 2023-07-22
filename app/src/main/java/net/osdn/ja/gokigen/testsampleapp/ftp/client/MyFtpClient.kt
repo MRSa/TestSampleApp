@@ -1,7 +1,6 @@
 package net.osdn.ja.gokigen.testsampleapp.ftp.client
 
 import android.util.Log
-import java.io.BufferedReader
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.io.InputStream
@@ -17,8 +16,12 @@ class MyFtpClient(private val callbackReceiver: IFtpServiceCallback)
     private var isConnected = false
     private var socket: Socket? = null
     private var dataOutputStream: DataOutputStream? = null
-    private var bufferedReader: BufferedReader? = null
+    //private var bufferedReader: BufferedReader? = null
     private val commandQueue : Queue<FtpCommand> = ArrayDeque()
+
+    private var isStartDataPort = false
+    private var isConnectedDataPort = false
+    private var socketDataPort: Socket? = null
 
     fun connect(address: String)
     {
@@ -84,7 +87,6 @@ class MyFtpClient(private val callbackReceiver: IFtpServiceCallback)
         {
             // 通信関連のクローズ
             closeOutputStream()
-            closeBufferedReader()
             closeSocket()
             isStart = false
             isConnected = false
@@ -97,23 +99,41 @@ class MyFtpClient(private val callbackReceiver: IFtpServiceCallback)
         System.gc()
     }
 
-    fun prepareDataConnectionPort(response: String)
+    fun decidePassivePort(response: String)
     {
         try
         {
-            val startIndex = response.indexOf("(") + 1
-            val endIndex = response.indexOf(")")
-            val pickupString = response.substring(startIndex, endIndex)
-
-            Log.v(TAG, " - - - - - -  prepareDataConnectionPort : $pickupString")
-
-
+            // データポートの IPアドレスとポート番号を応答データから切り出す
+            val pickupString = response.substring((response.indexOf("(") + 1), response.indexOf(")"))
+            val dataStringArray = pickupString.split(",")
+            val dataPortAddress = dataStringArray[0] + "." + dataStringArray[1] + "." +  dataStringArray[2] + "." +  dataStringArray[3]
+            val dataPort = dataStringArray[4].toInt() * 256 + dataStringArray[5].toInt()
+            val passiveAddress = "$dataPortAddress:$dataPort:\r\n"
+            Log.v(TAG, " - - - - - -  data Port : $passiveAddress ($pickupString  ${dataStringArray.size})")
+            callbackReceiver.onReceivedFtpResponse("data_port", 0, passiveAddress)
         }
         catch (e: Exception)
         {
             e.printStackTrace()
         }
         sleep(RECEIVE_WAIT_MS)
+    }
+
+    fun openPassivePort(address: String): Boolean
+    {
+        var response = true
+        try
+        {
+            // データポートをオープンして受信できるようにする
+            Log.v(TAG, "openPassivePort($address)")
+            val accessPoint = address.split(":")
+        }
+        catch (e: Exception)
+        {
+            e.printStackTrace()
+            response = false
+        }
+        return (response)
     }
 
     private fun closeOutputStream()
@@ -127,19 +147,6 @@ class MyFtpClient(private val callbackReceiver: IFtpServiceCallback)
             e.printStackTrace()
         }
         dataOutputStream = null
-    }
-
-    private fun closeBufferedReader()
-    {
-        try
-        {
-            bufferedReader?.close()
-        }
-        catch (e: Exception)
-        {
-            e.printStackTrace()
-        }
-        bufferedReader = null
     }
 
     private fun closeSocket()
@@ -205,6 +212,7 @@ class MyFtpClient(private val callbackReceiver: IFtpServiceCallback)
             callbackReceiver.onReceivedFtpResponse("receiverThread(0)", -1, e.message?:"EXCEPTION")
         }
     }
+
 
     private fun receiveFromDevice(command: FtpCommand)
     {

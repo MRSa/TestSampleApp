@@ -139,7 +139,8 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
                 "pass" -> changeCurrentWorkingDirectory(replyMessage)
                 "cwd" -> setAsciiTransferMode(replyMessage)
                 "ascii" -> setPassiveMode(replyMessage)
-                "passive" -> getFileList(replyMessage)
+                "passive" -> checkPassivePort(replyMessage)
+                "data_port" -> getFileList(replyMessage)
                 "list" -> checkListCommand(replyMessage)
             }
         }
@@ -226,15 +227,26 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
         }
     }
 
-    private fun getFileList(response: String)
+    private fun checkPassivePort(response: String)
     {
         try
         {
             if (response.startsWith("227"))
             {
-                ftpClient.prepareDataConnectionPort(response)
-                ftpClient.enqueueCommand(FtpCommand("list", "LIST\r\n"))
+                ftpClient.decidePassivePort(response)
             }
+        }
+        catch (e: Exception)
+        {
+            e.printStackTrace()
+        }
+    }
+    private fun getFileList(response: String)
+    {
+        try
+        {
+            ftpClient.openPassivePort(response)
+            ftpClient.enqueueCommand(FtpCommand("list", "LIST\r\n"))
         }
         catch (e: Exception)
         {
