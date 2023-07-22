@@ -2,5 +2,5 @@ package net.osdn.ja.gokigen.testsampleapp.ftp.client
 
 interface IFtpServiceCallback
 {
-    fun onReceivedFtpResponse(command: String, response: String)
+    fun onReceivedFtpResponse(command: String, code: Int, response: String)
 }

@@ -7,9 +7,14 @@ import android.view.View
 import android.view.View.OnLongClickListener
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import net.osdn.ja.gokigen.testsampleapp.ftp.client.FtpCommand
+import net.osdn.ja.gokigen.testsampleapp.ftp.client.IFtpServiceCallback
+import net.osdn.ja.gokigen.testsampleapp.ftp.client.MyFtpClient
 
-class MyActionListener(private val activity: AppCompatActivity, private val dataProvider: MyDataProvider, private val informationArea: TextView, private val statusArea: TextView) : View.OnClickListener, OnLongClickListener
+class MyActionListener(private val activity: AppCompatActivity, private val dataProvider: MyDataProvider, private val informationArea: TextView, private val statusArea: TextView) : View.OnClickListener, OnLongClickListener, IFtpServiceCallback
 {
+    val ftpClient = MyFtpClient(this)
+
     override fun onClick(p0: View?)
     {
         when (p0?.id) {
@@ -35,13 +40,12 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
         try
         {
             val address = dataProvider.getAddress()
-            val user = dataProvider.getUser()
-            val pass = dataProvider.getPass()
-            val message = "${activity.getString(R.string.lbl_connect)} $address  $user"
+            Log.v(TAG, "Connect to device ($address)")
+            val message = "${activity.getString(R.string.lbl_connect)} $address "
 
+            ftpClient.connect(address)
             informationArea.text = message
             statusArea.text = ""
-
         }
         catch (e: Exception)
         {
@@ -52,6 +56,7 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
     {
         try
         {
+            ftpClient.disconnect()
             informationArea.text = activity.getString(R.string.lbl_disconnect)
             statusArea.text = ""
         }
@@ -119,4 +124,133 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
     {
         private val TAG = MyActionListener::class.java.simpleName
     }
+
+    override fun onReceivedFtpResponse(command: String, code: Int, response: String)
+    {
+        val replyMessage = response.substring(0, (response.indexOf("\r\n") + 2))
+        Log.v(TAG, " onReceivedFtpResponse($command/$code) [${replyMessage.length}] $replyMessage")
+        if (code == 0)
+        {
+            // 成功の応答の場合... FTPのシーケンスを進める
+            when (command)
+            {
+                "connect" -> inputUser(replyMessage)
+                "user" -> inputPass(replyMessage)
+                "pass" -> changeCurrentWorkingDirectory(replyMessage)
+                "cwd" -> setAsciiTransferMode(replyMessage)
+                "ascii" -> setPassiveMode(replyMessage)
+                "passive" -> getFileList(replyMessage)
+                "list" -> checkListCommand(replyMessage)
+            }
+        }
+        activity.runOnUiThread {
+            val message = statusArea.text.toString() + "\r\n[" + command + "] " + replyMessage
+            statusArea.text = message
+        }
+    }
+
+    private fun inputUser(response: String)
+    {
+        try
+        {
+            if (response.startsWith("220"))
+            {
+                val user = dataProvider.getUser()
+                ftpClient.enqueueCommand(FtpCommand("user", "USER $user\r\n"))
+            }
+        }
+        catch (e: Exception)
+        {
+            e.printStackTrace()
+        }
+    }
+
+    private fun inputPass(response: String)
+    {
+        try
+        {
+            if (response.startsWith("331"))
+            {
+                val pass = dataProvider.getPass()
+                ftpClient.enqueueCommand(FtpCommand("pass", "PASS $pass\r\n"))
+            }
+        }
+        catch (e: Exception)
+        {
+            e.printStackTrace()
+        }
+    }
+
+    private fun changeCurrentWorkingDirectory(response: String)
+    {
+        try
+        {
+            if (response.startsWith("230"))
+            {
+                ftpClient.enqueueCommand(FtpCommand("cwd", "CWD /1/DCIM\r\n"))
+            }
+        }
+        catch (e: Exception)
+        {
+            e.printStackTrace()
+        }
+    }
+
+    private fun setAsciiTransferMode(response: String)
+    {
+        try
+        {
+            if (response.startsWith("250"))
+            {
+                ftpClient.enqueueCommand(FtpCommand("ascii", "TYPE A\r\n"))
+            }
+        }
+        catch (e: Exception)
+        {
+            e.printStackTrace()
+        }
+    }
+
+    private fun setPassiveMode(response: String)
+    {
+        try
+        {
+            if (response.startsWith("200"))
+            {
+                ftpClient.enqueueCommand(FtpCommand("passive", "PASV\r\n"))
+            }
+        }
+        catch (e: Exception)
+        {
+            e.printStackTrace()
+        }
+    }
+
+    private fun getFileList(response: String)
+    {
+        try
+        {
+            if (response.startsWith("227"))
+            {
+                ftpClient.prepareDataConnectionPort(response)
+                ftpClient.enqueueCommand(FtpCommand("list", "LIST\r\n"))
+            }
+        }
+        catch (e: Exception)
+        {
+            e.printStackTrace()
+        }
+    }
+    private fun checkListCommand(response: String)
+    {
+        try
+        {
+            Log.v(TAG, "RESPONSE: $response")
+        }
+        catch (e: Exception)
+        {
+            e.printStackTrace()
+        }
+    }
+
 }
