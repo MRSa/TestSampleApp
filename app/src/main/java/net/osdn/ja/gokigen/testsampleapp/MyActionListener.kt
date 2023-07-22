@@ -14,6 +14,7 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
     {
         when (p0?.id) {
             R.id.btnConnect -> pushedConnect()
+            R.id.btnDisconnect -> pushedDisconnect()
             R.id.btnWifiSet -> pushedWifiSet()
         }
     }
@@ -23,6 +24,7 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
         return (when (p0?.id)
         {
             R.id.btnConnect -> pushedConnect2()
+            R.id.btnDisconnect -> pushedDisconnect2()
             R.id.btnWifiSet -> pushedWifiSet2()
             else -> false
         })
@@ -40,6 +42,18 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
             informationArea.text = message
             statusArea.text = ""
 
+        }
+        catch (e: Exception)
+        {
+            e.printStackTrace()
+        }
+    }
+    private fun pushedDisconnect()
+    {
+        try
+        {
+            informationArea.text = activity.getString(R.string.lbl_disconnect)
+            statusArea.text = ""
         }
         catch (e: Exception)
         {
@@ -66,7 +80,19 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
         {
             informationArea.text = ""
             statusArea.text = ""
-
+        }
+        catch (e: Exception)
+        {
+            e.printStackTrace()
+        }
+        return (false)
+    }
+    private fun pushedDisconnect2() : Boolean
+    {
+        try
+        {
+            informationArea.text = ""
+            statusArea.text = ""
         }
         catch (e: Exception)
         {
@@ -81,7 +107,6 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
         {
             informationArea.text = ""
             statusArea.text = ""
-
         }
         catch (e: Exception)
         {

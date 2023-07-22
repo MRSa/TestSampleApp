@@ -6,4 +6,5 @@
     <string name="permission_not_granted">Permissions are not granted by the user.</string>
 
     <string name="lbl_connect">Connect</string>
+    <string name="lbl_disconnect">Disconnected</string>
 </resources>

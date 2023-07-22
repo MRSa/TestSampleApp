@@ -38,6 +38,7 @@ class MainActivity : AppCompatActivity()
             myDataProvider = MyDataProvider(findViewById(R.id.ip_address), findViewById(R.id.ftp_username), findViewById(R.id.ftp_password))
             myListener = MyActionListener(this, myDataProvider, findViewById(R.id.text_information), findViewById(R.id.text_status))
             findViewById<Button>(R.id.btnConnect).visibility = View.INVISIBLE
+            findViewById<Button>(R.id.btnDisconnect).visibility = View.INVISIBLE
             findViewById<Button>(R.id.btnWifiSet).visibility = View.INVISIBLE
 
             // 権限が確保されているか確認する
@@ -64,22 +65,24 @@ class MainActivity : AppCompatActivity()
         try
         {
             // ボタン押下を有効化する
-            val btn1 = findViewById<Button>(R.id.btnConnect)
-            btn1.setOnClickListener(myListener)
-            btn1.setOnLongClickListener(myListener)
-            btn1.visibility = View.VISIBLE
-
-            // ボタン押下を有効化する
-            val btn2 = findViewById<Button>(R.id.btnWifiSet)
-            btn2.setOnClickListener(myListener)
-            btn2.setOnLongClickListener(myListener)
-            btn2.visibility = View.VISIBLE
+            enableButton(R.id.btnConnect)
+            enableButton(R.id.btnDisconnect)
+            enableButton(R.id.btnWifiSet)
 
         }
         catch (e: Exception)
         {
             e.printStackTrace()
         }
+    }
+
+    private fun enableButton(id: Int)
+    {
+        // ボタン押下を有効化する
+        val btn1 = findViewById<Button>(id)
+        btn1.setOnClickListener(myListener)
+        btn1.setOnLongClickListener(myListener)
+        btn1.visibility = View.VISIBLE
     }
 
     private fun allPermissionsGranted() : Boolean
