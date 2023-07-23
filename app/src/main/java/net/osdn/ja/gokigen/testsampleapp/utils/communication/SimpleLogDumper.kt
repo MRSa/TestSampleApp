@@ -1,4 +1,4 @@
-package net.osdn.ja.gokigen.testsampleapp.ftp.client
+package net.osdn.ja.gokigen.testsampleapp.utils.communication
 
 import android.util.Log
 

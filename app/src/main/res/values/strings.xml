@@ -7,4 +7,7 @@
 
     <string name="lbl_connect">Connect</string>
     <string name="lbl_disconnect">Disconnected</string>
+
+    <string name="get_thumbnails">Get Thumbnails</string>
+    <string name="finished_get_thumbnail">Get Thumbnail finished. : </string>
 </resources>

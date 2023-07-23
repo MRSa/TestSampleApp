@@ -10,10 +10,16 @@ import androidx.appcompat.app.AppCompatActivity
 import net.osdn.ja.gokigen.testsampleapp.ftp.client.FtpCommand
 import net.osdn.ja.gokigen.testsampleapp.ftp.client.IFtpServiceCallback
 import net.osdn.ja.gokigen.testsampleapp.ftp.client.MyFtpClient
+import net.osdn.ja.gokigen.testsampleapp.utils.communication.SimpleHttpClient
+import net.osdn.ja.gokigen.testsampleapp.utils.storefile.DataStoreLocal
+import java.io.ByteArrayOutputStream
 
 class MyActionListener(private val activity: AppCompatActivity, private val dataProvider: MyDataProvider, private val informationArea: TextView, private val statusArea: TextView) : View.OnClickListener, OnLongClickListener, IFtpServiceCallback
 {
+    private val dataStore = DataStoreLocal(activity)
+    private val httpClient = SimpleHttpClient()
     val ftpClient = MyFtpClient(this)
+    val imageFileList = ArrayList<String>()
 
     override fun onClick(p0: View?)
     {
@@ -43,6 +49,7 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
             Log.v(TAG, "Connect to device ($address)")
             val message = "${activity.getString(R.string.lbl_connect)} $address "
 
+            imageFileList.clear()
             ftpClient.connect(address)
             informationArea.text = message
             statusArea.text = ""
@@ -120,32 +127,31 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
         return (true)
     }
 
-    companion object
-    {
-        private val TAG = MyActionListener::class.java.simpleName
-    }
-
     override fun onReceivedFtpResponse(command: String, code: Int, response: String)
     {
-        val replyMessage = response.substring(0, (response.indexOf("\r\n") + 2))
-        Log.v(TAG, " onReceivedFtpResponse($command/$code) [${replyMessage.length}] $replyMessage")
-        if (code == 0)
+         if (code == 0)
         {
             // 成功の応答の場合... FTPのシーケンスを進める
             when (command)
             {
-                "connect" -> inputUser(replyMessage)
-                "user" -> inputPass(replyMessage)
-                "pass" -> changeCurrentWorkingDirectory(replyMessage)
-                "cwd" -> setAsciiTransferMode(replyMessage)
-                "ascii" -> setPassiveMode(replyMessage)
-                "passive" -> checkPassivePort(replyMessage)
-                "data_port" -> getFileList(replyMessage)
-                "list" -> checkListCommand(replyMessage)
+                "connect" -> inputUser(response)
+                "user" -> inputPass(response)
+                "pass" -> changeCurrentWorkingDirectory(response)
+                "cwd" -> setAsciiTransferMode(response)
+                "ascii" -> setPassiveMode(response)
+                "passive" -> checkPassivePort(response)
+                "data_port" -> getFileList(response)
+                "list" -> checkListCommand(response)
+                "data" -> parseFileList(response)
+                "quit" -> checkQuitResponse(response)
             }
         }
+        else
+        {
+            Log.v(TAG, " onReceivedFtpResponse($command/$code) [${response.length}] $response")
+        }
         activity.runOnUiThread {
-            val message = statusArea.text.toString() + "\r\n[" + command + "] " + replyMessage
+            val message = statusArea.text.toString() + "\r\n[" + command + "] " + response
             statusArea.text = message
         }
     }
@@ -258,6 +264,14 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
         try
         {
             Log.v(TAG, "RESPONSE: $response")
+            if ((response.startsWith("226"))||((response.startsWith("150"))&&(response.contains("226"))))
+            {
+                ftpClient.enqueueCommand(FtpCommand("quit", "QUIT\r\n"))
+            }
+            else if (response.startsWith("150"))
+            {
+                Log.v(TAG, "RESP. 150")
+            }
         }
         catch (e: Exception)
         {
@@ -265,4 +279,110 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
         }
     }
 
+    private fun parseFileList(response: String)
+    {
+        try
+        {
+            imageFileList.clear()
+            val fileList = response.split("\r\n")
+            for (files in fileList)
+            {
+                val fileData = files.split(Regex("\\s+"))
+                if (fileData.size > 8)
+                {
+                    val imageFile = fileData[8]
+                    imageFileList.add(imageFile)
+                    //val imageDate = "${fileData[5]} ${fileData[6]} ${fileData[7]}" // MM DD YYYY
+                    //imageDateList.add(fileData[16])
+                }
+            }
+        }
+        catch (e: Exception)
+        {
+            e.printStackTrace()
+        }
+    }
+
+    private fun checkQuitResponse(response: String)
+    {
+        try
+        {
+            Log.v(TAG, "RESPONSE: $response")
+            ftpClient.disconnect()
+
+            getThumbnails()
+        }
+        catch (e: Exception)
+        {
+            e.printStackTrace()
+        }
+    }
+
+    private fun getThumbnails()
+    {
+        try
+        {
+            val thread = Thread {
+                try
+                {
+                    activity.runOnUiThread {
+                        informationArea.text = activity.getString(R.string.get_thumbnails)
+                    }
+                    for (file in imageFileList)
+                    {
+                        // val urlToGet = "http://${dataProvider.getAddress()}/DCIM/O/$file" // オリジナルデータの取得
+                        val urlToGet = "http://${dataProvider.getAddress()}/DCIM/T/$file"    // サムネイルデータの取得
+                        val byteStream = ByteArrayOutputStream()
+                        byteStream.reset()
+                        Log.v(TAG, "GET $urlToGet")
+                        httpClient.httpGetBytes(urlToGet, HashMap(), DEFAULT_TIMEOUT,
+                            object : SimpleHttpClient.IReceivedMessageCallback {
+                                override fun onCompleted() {
+                                    // Log.v(TAG, " onCompleted() : $file")
+                                    dataStore.storeBinaryDataLocal(file, byteStream.toByteArray())
+                                    byteStream.reset()
+                                }
+
+                                override fun onErrorOccurred(e: java.lang.Exception?) {
+                                    Log.v(TAG, " onErrorOccurred() : ${e?.message}")
+                                }
+
+                                override fun onReceive(
+                                    readBytes: Int,
+                                    length: Int,
+                                    size: Int,
+                                    data: ByteArray?
+                                ) {
+                                    //Log.v(TAG, "onReceive($readBytes, $length, $size)")
+                                    if (data != null)
+                                    {
+                                        byteStream.write(data, 0, size)
+                                    }
+                                }
+                            }
+                        )
+                    }
+                    activity.runOnUiThread {
+                        val message = activity.getString(R.string.finished_get_thumbnail) + imageFileList.size
+                        informationArea.text = message
+                    }
+                }
+                catch (e: Exception)
+                {
+                    e.printStackTrace()
+                }
+            }
+            thread.start()
+        }
+        catch (e: Exception)
+        {
+            e.printStackTrace()
+        }
+    }
+
+    companion object
+    {
+        private val TAG = MyActionListener::class.java.simpleName
+        private const val DEFAULT_TIMEOUT = 15000
+    }
 }

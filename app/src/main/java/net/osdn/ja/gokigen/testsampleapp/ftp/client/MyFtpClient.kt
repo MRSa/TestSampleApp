@@ -1,6 +1,7 @@
 package net.osdn.ja.gokigen.testsampleapp.ftp.client
 
 import android.util.Log
+import net.osdn.ja.gokigen.testsampleapp.utils.communication.SimpleLogDumper
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.io.InputStream
@@ -10,23 +11,26 @@ import java.net.Socket
 import java.util.ArrayDeque
 import java.util.Queue
 
-class MyFtpClient(private val callbackReceiver: IFtpServiceCallback)
+class MyFtpClient(private val callbackReceiver: IFtpServiceCallback, private val isDumpReceiveLog: Boolean = false)
 {
     private var isStart = false
     private var isConnected = false
     private var socket: Socket? = null
     private var dataOutputStream: DataOutputStream? = null
     //private var bufferedReader: BufferedReader? = null
+    private var connectedAddress : String? = null
     private val commandQueue : Queue<FtpCommand> = ArrayDeque()
 
     private var isStartDataPort = false
     private var isConnectedDataPort = false
     private var socketDataPort: Socket? = null
+    private var dataOutputStreamDataPort: DataOutputStream? = null
 
     fun connect(address: String)
     {
         try
         {
+            connectedAddress = address
             Log.v(TAG, "connect to $address")
             val thread = Thread {
                 try
@@ -49,9 +53,10 @@ class MyFtpClient(private val callbackReceiver: IFtpServiceCallback)
                     dataOutputStream = DataOutputStream(socket?.getOutputStream())
                     isConnected = true
 
+                    // 接続後の一発目は、自動で読み込んでみる
                     val connectCommand = FtpCommand("connect", "connect")
-                    receiveFromDevice(connectCommand)  // 接続後の一発目は、自動で読み込んでみる
-                    receiverThread()
+                    receiveFromDevice(connectCommand, socket, DATA_POLL_QUEUE_MS, MAX_RETRY_WAIT_COUNT)
+                    sendCommandMain()
                 }
                 catch (e: Exception)
                 {
@@ -83,14 +88,18 @@ class MyFtpClient(private val callbackReceiver: IFtpServiceCallback)
 
     fun disconnect()
     {
+        Log.v(TAG, "  ----- DISCONNECT -----")
         try
         {
             // 通信関連のクローズ
             closeOutputStream()
             closeSocket()
             isStart = false
+            isStartDataPort = false
             isConnected = false
+            isConnectedDataPort = false
             commandQueue.clear()
+            connectedAddress = null
         }
         catch (e: Exception)
         {
@@ -125,8 +134,38 @@ class MyFtpClient(private val callbackReceiver: IFtpServiceCallback)
         try
         {
             // データポートをオープンして受信できるようにする
-            Log.v(TAG, "openPassivePort($address)")
             val accessPoint = address.split(":")
+            Log.v(TAG, "openPassivePort address:$connectedAddress (or ${accessPoint[0]}) port:${accessPoint[1]}")
+            val thread = Thread {
+                try
+                {
+                    val tcpNoDelay = true
+                    Log.v(TAG, " connect() : address:${accessPoint[0]} port:${accessPoint[1]}")
+                    socketDataPort = Socket()
+                    socketDataPort?.reuseAddress = true
+                    socketDataPort?.keepAlive = true
+                    socketDataPort?.tcpNoDelay = true
+                    if (tcpNoDelay)
+                    {
+                        socketDataPort?.keepAlive = false
+                        socketDataPort?.setPerformancePreferences(0, 2, 0)
+                        socketDataPort?.oobInline = true
+                        socketDataPort?.reuseAddress = false
+                        socketDataPort?.trafficClass = 0x80
+                    }
+                    val dataAddress = if (connectedAddress != null) { connectedAddress } else { accessPoint[0] }
+                    socketDataPort?.connect(InetSocketAddress(dataAddress, accessPoint[1].toInt()), 0)
+                    dataOutputStreamDataPort = DataOutputStream(socketDataPort?.getOutputStream())
+                    isConnectedDataPort = true
+                    receiveDataMain()
+                }
+                catch (e: Exception)
+                {
+                    e.printStackTrace()
+                    callbackReceiver.onReceivedFtpResponse("passive_data", -1, e.message?:"EXCEPTION")
+                }
+            }
+            thread.start()
         }
         catch (e: Exception)
         {
@@ -141,12 +180,14 @@ class MyFtpClient(private val callbackReceiver: IFtpServiceCallback)
         try
         {
             dataOutputStream?.close()
+            dataOutputStreamDataPort?.close()
         }
         catch (e: Exception)
         {
             e.printStackTrace()
         }
         dataOutputStream = null
+        dataOutputStreamDataPort = null
     }
 
     private fun closeSocket()
@@ -154,15 +195,43 @@ class MyFtpClient(private val callbackReceiver: IFtpServiceCallback)
         try
         {
             socket?.close()
+            socketDataPort?.close()
         }
         catch (e: Exception)
         {
             e.printStackTrace()
         }
         socket = null
+        socketDataPort = null
     }
 
-    private fun receiverThread()
+    private fun receiveDataMain()
+    {
+        if (isStartDataPort)
+        {
+            // すでにコマンドのスレッド動作中なので抜ける
+            return
+        }
+        isStartDataPort = true
+        Log.v(TAG, " receiveDataMain() : START")
+        val command = FtpCommand("data", " \r\n")
+        while (isStartDataPort)
+        {
+            try
+            {
+                Log.v(TAG, " --- RECEIVE DATA STANDBY --- ")
+                sleep(DATA_POLL_QUEUE_MS)
+                receiveFromDevice(command, socketDataPort, DATA_POLL_QUEUE_MS, MAX_RETRY_WAIT_COUNT_DATA)
+            }
+            catch (e: Exception)
+            {
+                e.printStackTrace()
+                callbackReceiver.onReceivedFtpResponse("receiveDataMain", -1, e.message?:"EXCEPTION")
+            }
+        }
+    }
+
+    private fun sendCommandMain()
     {
         if (isStart)
         {
@@ -170,56 +239,36 @@ class MyFtpClient(private val callbackReceiver: IFtpServiceCallback)
             return
         }
         isStart = true
-        Log.v(TAG, " receiverThread() : START")
-        val thread = Thread {
+        Log.v(TAG, " sendCommandMain() : START")
+        while (isStart)
+        {
             try
             {
-                while (isStart)
+                val command = commandQueue.poll()
+                if (command != null)
                 {
-                    try
-                    {
-                        val command = commandQueue.poll()
-                        if (command != null)
-                        {
-                            issueCommand(DUMP_LOG, command)
-                            sleep(COMMAND_POLL_QUEUE_MS)
+                    issueCommand(command)
+                    sleep(COMMAND_POLL_QUEUE_MS)
 
-                            Log.v(TAG, " --- RECEIVE WAIT FOR REPLY --- ")
-                            receiveFromDevice(command)
-                        }
-                        sleep(COMMAND_POLL_QUEUE_MS)
-                    }
-                    catch (e: Exception)
-                    {
-                        e.printStackTrace()
-                        callbackReceiver.onReceivedFtpResponse("receiverThread(1)", -1, e.message?:"EXCEPTION")
-                    }
+                    Log.v(TAG, " --- RECEIVE WAIT FOR REPLY --- ")
+                    receiveFromDevice(command, socket, COMMAND_POLL_QUEUE_MS, MAX_RETRY_WAIT_COUNT)
                 }
+                sleep(COMMAND_POLL_QUEUE_MS)
             }
             catch (e: Exception)
             {
                 e.printStackTrace()
-                callbackReceiver.onReceivedFtpResponse("receiverThread(2)", -1, e.message?:"EXCEPTION")
+                callbackReceiver.onReceivedFtpResponse("sendCommandMain", -1, e.message?:"EXCEPTION")
             }
-        }
-        try
-        {
-            thread.start()
-        }
-        catch (e: Exception)
-        {
-            e.printStackTrace()
-            callbackReceiver.onReceivedFtpResponse("receiverThread(0)", -1, e.message?:"EXCEPTION")
         }
     }
 
-
-    private fun receiveFromDevice(command: FtpCommand)
+    private fun receiveFromDevice(command: FtpCommand, targetSocket: Socket?, wait: Int, maxRetry : Int)
     {
         try
         {
             val byteArray = ByteArray(PACKET_BUFFER_SIZE)
-            val inputStream: InputStream? = socket?.getInputStream()
+            val inputStream: InputStream? = targetSocket?.getInputStream()
             if (inputStream == null)
             {
                 Log.v(TAG, " InputStream is NULL... RECEIVE ABORTED.")
@@ -228,16 +277,19 @@ class MyFtpClient(private val callbackReceiver: IFtpServiceCallback)
             }
 
             // 初回データが受信バッファにデータが溜まるまで待つ...
-            var readBytes = waitForReceive(inputStream, COMMAND_POLL_QUEUE_MS, MAX_RETRY_WAIT_COUNT)
+            var readBytes = waitForReceive(inputStream, wait, maxRetry)
             if (readBytes < 0)
             {
                 // リトライオーバー検出
                 Log.v(TAG, "  ----- DETECT RECEIVE RETRY OVER... -----")
-                callbackReceiver.onReceivedFtpResponse("receiveFromDevice($command)", -1, "Receive timeout (${COMMAND_POLL_QUEUE_MS * MAX_RETRY_WAIT_COUNT} ms)")
+                callbackReceiver.onReceivedFtpResponse("receiveFromDevice(${command.command})", -1, "Receive timeout (${COMMAND_POLL_QUEUE_MS * MAX_RETRY_WAIT_COUNT} ms)")
             }
 
             // 受信したデータをバッファに突っ込む
+            var isWriteData = false
+            //var dataValue = ""
             val byteStream = ByteArrayOutputStream()
+            byteStream.reset()
             while (readBytes > 0)
             {
                 readBytes = inputStream.read(byteArray, 0, PACKET_BUFFER_SIZE)
@@ -246,12 +298,19 @@ class MyFtpClient(private val callbackReceiver: IFtpServiceCallback)
                     Log.v(TAG," RECEIVED MESSAGE FINISHED ($readBytes)")
                     break
                 }
+                //Log.v(TAG, " :::::::::: [${command.command}] Read Bytes: $readBytes")
                 byteStream.write(byteArray, 0, readBytes)
+                //dataValue += String(byteArray.copyOfRange(0, readBytes))
+                isWriteData = true
                 sleep(RECEIVE_WAIT_MS)
                 readBytes = inputStream.available()
             }
-            val responseString = String(byteArray)
-            callbackReceiver.onReceivedFtpResponse(command.command, 0, responseString)
+            if (isWriteData)
+            {
+                //Log.v(TAG, " >>>>[${command.command}]>>>>>> $dataValue")
+                callbackReceiver.onReceivedFtpResponse(command.command, 0, String(byteStream.toByteArray()))
+                //callbackReceiver.onReceivedFtpResponse(command.command, 0, dataValue)
+            }
             System.gc()
         }
         catch (t: Throwable)
@@ -261,7 +320,7 @@ class MyFtpClient(private val callbackReceiver: IFtpServiceCallback)
         }
     }
 
-    private fun issueCommand(isDumpReceiveLog: Boolean, command: FtpCommand)
+    private fun issueCommand(command: FtpCommand)
     {
         try
         {
@@ -296,9 +355,9 @@ class MyFtpClient(private val callbackReceiver: IFtpServiceCallback)
         }
     }
 
-    private fun waitForReceive(inputStream: InputStream, delayMs: Int, retry_count: Int): Int
+    private fun waitForReceive(inputStream: InputStream, delayMs: Int, maxRetry: Int): Int
     {
-        var retryCount = retry_count
+        var retryCount = maxRetry
         var isLogOutput = true
         var readBytes = 0
         try
@@ -311,11 +370,11 @@ class MyFtpClient(private val callbackReceiver: IFtpServiceCallback)
                 {
                     if (isLogOutput)
                     {
-                        Log.v(TAG, "  ----- waitForReceive:: is.available() WAIT... : " + delayMs + "ms")
+                        // Log.v(TAG, "  ----- waitForReceive:: is.available() WAIT... : " + delayMs + "ms")
                         isLogOutput = false
                     }
                     retryCount--
-                    if (retry_count < 0)
+                    if (retryCount < 0)
                     {
                         return (-1)
                     }
@@ -343,15 +402,14 @@ class MyFtpClient(private val callbackReceiver: IFtpServiceCallback)
 
     companion object {
         private val TAG = MyFtpClient::class.java.simpleName
-        private const val DUMP_LOG = true
         private const val COMMAND_POLL_QUEUE_MS = 15
+        private const val DATA_POLL_QUEUE_MS = 50
         private const val MAX_RETRY_WAIT_COUNT = 20
+        private const val MAX_RETRY_WAIT_COUNT_DATA = 100
         private const val RECEIVE_WAIT_MS = 50
         private const val PACKET_BUFFER_SIZE = 8192
 
         private const val FTP_CONTROL_PORT = 21
         // private const val FTP_DATA_PORT = 20
-
     }
-
 }
