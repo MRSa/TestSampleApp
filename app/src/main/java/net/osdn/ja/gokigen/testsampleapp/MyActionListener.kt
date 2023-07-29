@@ -18,8 +18,9 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
 {
     private val dataStore = DataStoreLocal(activity)
     private val httpClient = SimpleHttpClient()
-    val ftpClient = MyFtpClient(this)
-    val imageFileList = ArrayList<String>()
+    private val ftpClient = MyFtpClient(this)
+    private val imageFileList = ArrayList<String>()
+    private var dataReceiveError = 0
 
     override fun onClick(p0: View?)
     {
@@ -149,10 +150,36 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
         else
         {
             Log.v(TAG, " onReceivedFtpResponse($command/$code) [${response.length}] $response")
+            //onReceivedDataError(response)
+/**/
+            when (command)
+            {
+                "receiveFromDevice(data)" -> onReceivedDataError(response)
+            }
+/**/
         }
         activity.runOnUiThread {
             val message = statusArea.text.toString() + "\r\n[" + command + "] " + response
             statusArea.text = message
+        }
+    }
+
+    private fun onReceivedDataError(response: String)
+    {
+        try
+        {
+            Log.v(TAG, "  ----- onReceivedDateError() : $response")
+            dataReceiveError++
+            if (dataReceiveError > DATA_RECEIVE_ERROR_MAX)
+            {
+                Log.v(TAG,  "= = = = = REACHED ERROR MAX COUNT : $dataReceiveError")
+                ftpClient.enqueueCommand(FtpCommand("quit", "QUIT\r\n"))
+                dataReceiveError = 0
+            }
+        }
+        catch (e: Exception)
+        {
+            e.printStackTrace()
         }
     }
 
@@ -239,6 +266,7 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
         {
             if (response.startsWith("227"))
             {
+                Log.v(TAG, " Check Passive Port : $response")
                 ftpClient.decidePassivePort(response)
             }
         }
@@ -251,6 +279,7 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
     {
         try
         {
+            dataReceiveError = 0
             ftpClient.openPassivePort(response)
             ftpClient.enqueueCommand(FtpCommand("list", "LIST\r\n"))
         }
@@ -283,6 +312,7 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
     {
         try
         {
+            Log.v(TAG, "parseFileList")
             imageFileList.clear()
             val fileList = response.split("\r\n")
             for (files in fileList)
@@ -310,7 +340,17 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
             Log.v(TAG, "RESPONSE: $response")
             ftpClient.disconnect()
 
-            getThumbnails()
+            if (dataProvider.isChecked2())
+            {
+                getImageFiles()
+            }
+            else
+            {
+                activity.runOnUiThread {
+                    val message = activity.getString(R.string.finished_connection) + imageFileList.size
+                    informationArea.text = message
+                }
+            }
         }
         catch (e: Exception)
         {
@@ -318,7 +358,7 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
         }
     }
 
-    private fun getThumbnails()
+    private fun getImageFiles()
     {
         try
         {
@@ -326,12 +366,18 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
                 try
                 {
                     activity.runOnUiThread {
-                        informationArea.text = activity.getString(R.string.get_thumbnails)
+                        informationArea.text = activity.getString(R.string.get_images)
                     }
                     for (file in imageFileList)
                     {
-                        // val urlToGet = "http://${dataProvider.getAddress()}/DCIM/O/$file" // オリジナルデータの取得
-                        val urlToGet = "http://${dataProvider.getAddress()}/DCIM/T/$file"    // サムネイルデータの取得
+                        val urlToGet = if (dataProvider.isChecked3())
+                        {
+                            "http://${dataProvider.getAddress()}/DCIM/T/$file" // サムネイルデータの取得
+                        }
+                        else
+                        {
+                            "http://${dataProvider.getAddress()}/DCIM/O/$file" // オリジナルデータの取得
+                        }
                         val byteStream = ByteArrayOutputStream()
                         byteStream.reset()
                         Log.v(TAG, "GET $urlToGet")
@@ -363,7 +409,7 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
                         )
                     }
                     activity.runOnUiThread {
-                        val message = activity.getString(R.string.finished_get_thumbnail) + imageFileList.size
+                        val message = activity.getString(R.string.finished_get_images) + imageFileList.size
                         informationArea.text = message
                     }
                 }
@@ -384,5 +430,6 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
     {
         private val TAG = MyActionListener::class.java.simpleName
         private const val DEFAULT_TIMEOUT = 15000
+        private const val DATA_RECEIVE_ERROR_MAX = 0
     }
 }
