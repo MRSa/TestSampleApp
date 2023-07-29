@@ -247,7 +247,10 @@ class MyFtpClient(private val callbackReceiver: IFtpServiceCallback, private val
                 val command = commandQueue.poll()
                 if (command != null)
                 {
-                    issueCommand(command)
+                    if (!command.isSendSuppress)
+                    {
+                        issueCommand(command)
+                    }
                     sleep(COMMAND_POLL_QUEUE_MS)
 
                     Log.v(TAG, " --- RECEIVE WAIT FOR REPLY --- ")

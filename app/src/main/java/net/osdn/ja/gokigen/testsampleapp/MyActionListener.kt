@@ -300,6 +300,18 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
             else if (response.startsWith("150"))
             {
                 Log.v(TAG, "RESP. 150")
+                // 226の応答受信のために、すこし待つ...
+                // （ただし、DATAポートのタイムアウトを待った方が、全データ受信できそう）
+                try
+                {
+                    Log.v(TAG, " -----RECEIVE WAIT 1000ms")
+                    Thread.sleep(1000)
+                }
+                catch (ee: Exception)
+                {
+                    ee.printStackTrace()
+                }
+                ftpClient.enqueueCommand(FtpCommand("list", "LIST\r\n", true))
             }
         }
         catch (e: Exception)
@@ -430,6 +442,6 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
     {
         private val TAG = MyActionListener::class.java.simpleName
         private const val DEFAULT_TIMEOUT = 15000
-        private const val DATA_RECEIVE_ERROR_MAX = 0
+        private const val DATA_RECEIVE_ERROR_MAX = 5
     }
 }

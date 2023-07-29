@@ -1,3 +1,3 @@
 package net.osdn.ja.gokigen.testsampleapp.ftp.client
 
-data class FtpCommand(val command: String, val value: String)
+data class FtpCommand(val command: String, val value: String, val isSendSuppress: Boolean = false)
