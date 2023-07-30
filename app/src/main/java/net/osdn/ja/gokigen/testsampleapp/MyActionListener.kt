@@ -1,7 +1,13 @@
 package net.osdn.ja.gokigen.testsampleapp
 
+import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.RouteInfo
+import android.net.wifi.WifiManager
+import android.os.Build
 import android.provider.Settings
+import android.text.format.Formatter
 import android.util.Log
 import android.view.View
 import android.view.View.OnLongClickListener
@@ -13,6 +19,7 @@ import net.osdn.ja.gokigen.testsampleapp.ftp.client.MyFtpClient
 import net.osdn.ja.gokigen.testsampleapp.utils.communication.SimpleHttpClient
 import net.osdn.ja.gokigen.testsampleapp.utils.storefile.DataStoreLocal
 import java.io.ByteArrayOutputStream
+import java.net.Inet6Address
 
 class MyActionListener(private val activity: AppCompatActivity, private val dataProvider: MyDataProvider, private val informationArea: TextView, private val statusArea: TextView) : View.OnClickListener, OnLongClickListener, IFtpServiceCallback
 {
@@ -46,6 +53,11 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
     {
         try
         {
+            if (dataProvider.isChecked1())
+            {
+                // 自動でIPアドレスを更新する
+                updateTargetHostIpAddress()
+            }
             val address = dataProvider.getAddress()
             Log.v(TAG, "Connect to device ($address)")
             val message = "${activity.getString(R.string.lbl_connect)} $address "
@@ -431,6 +443,31 @@ class MyActionListener(private val activity: AppCompatActivity, private val data
                 }
             }
             thread.start()
+        }
+        catch (e: Exception)
+        {
+            e.printStackTrace()
+        }
+    }
+
+    private fun updateTargetHostIpAddress()
+    {
+        try
+        {
+            val connectivityManager = activity.applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val activeNetwork = connectivityManager.activeNetwork?: return
+            val routes: List<RouteInfo> = connectivityManager.getLinkProperties(activeNetwork)?.routes ?: return
+            for (route in routes)
+            {
+                val gateway = route.gateway
+                if ((route.isDefaultRoute) && (!(gateway is Inet6Address))&&(gateway != null))
+                {
+                    val ipAddress = gateway.toString().replace("/","")
+                    dataProvider.setAddress(ipAddress)
+                    Log.v(TAG, " --------- default Gateway : $ipAddress  --------- ")
+                    return
+                }
+            }
         }
         catch (e: Exception)
         {
